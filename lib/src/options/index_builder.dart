@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_map/plugin_api.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_supercluster/flutter_map_supercluster.dart';
 import 'package:flutter_map_supercluster/src/layer/supercluster_config.dart';
 
@@ -33,8 +33,7 @@ class IndexBuilders {
   /// Creates the supercluster in the root isolate. This is the best choice if
   /// you don't experience jank when creating the index.
   static IndexBuilder rootIsolate =
-      ((createSupercluster, superclusterConfig) async =>
-          createSupercluster(superclusterConfig));
+      ((createSupercluster, superclusterConfig) async => createSupercluster(superclusterConfig));
 
   /// Creates the supercluster in a separate isolate using flutter's [compute]
   /// method and then replaces the copied Marker instances in the supercluster
@@ -43,10 +42,9 @@ class IndexBuilders {
   /// down index creation for large numbers of Markers. This is unnecessary if
   /// you extend Marker and override its hashCode/== methods, in which case you
   /// should use [computeWithCopiedMarkers].
-  static IndexBuilder computeWithOriginalMarkers =
-      ((createSupercluster, superclusterConfig) async =>
-          compute(createSupercluster, superclusterConfig).then((supercluster) =>
-              supercluster..replacePoints(superclusterConfig.markers)));
+  static IndexBuilder computeWithOriginalMarkers = ((createSupercluster, superclusterConfig) async =>
+      compute(createSupercluster, superclusterConfig)
+          .then((supercluster) => supercluster..replacePoints(superclusterConfig.markers)));
 
   /// Creates the supercluster in a separate isolate using flutter's [compute]
   /// method. Dart creates copies of objects when running code in a separate
@@ -59,8 +57,7 @@ class IndexBuilders {
   /// Failure to override hashCode/== will prevent popups from working properly
   /// for splayed clusters and may cause other issues.
   static IndexBuilder computeWithCopiedMarkers =
-      ((createSupercluster, superclusterConfig) async =>
-          compute(createSupercluster, superclusterConfig));
+      ((createSupercluster, superclusterConfig) async => compute(createSupercluster, superclusterConfig));
 
   /// Calls the provided [indexBuilder] before replacing the resulting index's
   /// markers with the original markers. This is only necessary when the
@@ -71,6 +68,5 @@ class IndexBuilders {
   static IndexBuilder customWithOriginalMarkers(IndexBuilder indexBuilder) =>
       ((createSupercluster, superclusterConfig) async => indexBuilder
           .call(createSupercluster, superclusterConfig)
-          .then((supercluster) =>
-              supercluster..replacePoints(superclusterConfig.markers)));
+          .then((supercluster) => supercluster..replacePoints(superclusterConfig.markers)));
 }

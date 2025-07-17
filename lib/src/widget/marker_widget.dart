@@ -1,17 +1,13 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_map/plugin_api.dart';
-import 'package:flutter_map_supercluster/src/layer/anchor_util.dart';
-import 'package:flutter_map_supercluster/src/layer/flutter_map_state_extension.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_supercluster/src/marker_extension.dart';
 import 'package:flutter_map_supercluster/src/splay/displaced_marker.dart';
 
 class MarkerWidget extends StatelessWidget {
   final Marker marker;
-  final WidgetBuilder markerBuilder;
+  final Widget markerChild;
   final VoidCallback onTap;
-  final Point<double> position;
+  final Offset position;
   final double mapRotationRad;
 
   final AlignmentGeometry? rotateAlignment;
@@ -19,67 +15,80 @@ class MarkerWidget extends StatelessWidget {
 
   MarkerWidget({
     super.key,
-    required FlutterMapState mapState,
+    required MapController mapController,
     required this.marker,
-    required this.markerBuilder,
+    required this.markerChild,
     required this.onTap,
-  })  : mapRotationRad = mapState.rotationRad,
-        position = _getMapPointPixel(mapState, marker),
-        rotateAlignment = marker.rotateAlignment,
+  })  : mapRotationRad = mapController.camera.rotationRad,
+        position = _getMapPointPixel(mapController, marker),
+        rotateAlignment = marker.alignment,
         removeRotateOrigin = false;
 
   MarkerWidget.displaced({
-    Key? key,
+    super.key,
     required DisplacedMarker displacedMarker,
-    required CustomPoint position,
-    required this.markerBuilder,
+    required Offset position,
+    required this.markerChild,
     required this.onTap,
     required this.mapRotationRad,
   })  : marker = displacedMarker.marker,
-        position = AnchorUtil.removeAnchor(
-          position,
-          displacedMarker.marker.width,
-          displacedMarker.marker.height,
-          displacedMarker.anchor,
+        position = Offset(
+          position.dx -
+              _alignmentOffset(
+                      displacedMarker.marker.alignment, displacedMarker.marker.width, displacedMarker.marker.height)
+                  .dx,
+          position.dy -
+              _alignmentOffset(
+                      displacedMarker.marker.alignment, displacedMarker.marker.width, displacedMarker.marker.height)
+                  .dy,
         ),
         rotateAlignment = DisplacedMarker.rotateAlignment,
-        removeRotateOrigin = true,
-        super(key: key);
+        removeRotateOrigin = true;
 
   @override
   Widget build(BuildContext context) {
     final child = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: markerBuilder(context),
+      child: markerChild,
     );
 
     return Positioned(
       key: ObjectKey(marker),
       width: marker.width,
       height: marker.height,
-      left: position.x,
-      top: position.y,
+      left: position.dx,
+      top: position.dy,
       child: marker.rotate != true
           ? child
           : Transform.rotate(
               angle: -mapRotationRad,
-              origin: removeRotateOrigin ? null : marker.rotateOrigin,
+              origin: removeRotateOrigin ? null : marker.anchorOffset,
               alignment: rotateAlignment,
               child: child,
             ),
     );
   }
 
-  static Point<double> _getMapPointPixel(
-    FlutterMapState mapState,
+  static Offset _getMapPointPixel(
+    MapController mapController,
     Marker marker,
   ) {
-    return AnchorUtil.removeAnchor(
-      mapState.getPixelOffset(marker.point),
-      marker.width,
-      marker.height,
-      marker.anchor,
+    final base = mapController.camera.projectAtZoom(marker.point);
+    final alignmentOffset = _alignmentOffset(marker.alignment, marker.width, marker.height);
+    return Offset(
+      base.dx - alignmentOffset.dx,
+      base.dy - alignmentOffset.dy,
+    );
+  }
+
+  static Offset _alignmentOffset(AlignmentGeometry? alignment, double width, double height) {
+    final align = alignment ?? Alignment.center;
+    final resolved = align is Alignment ? align : align.resolve(TextDirection.ltr);
+
+    return Offset(
+      (resolved.x + 1) / 2 * width,
+      (resolved.y + 1) / 2 * height,
     );
   }
 }

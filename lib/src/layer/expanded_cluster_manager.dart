@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/plugin_api.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_supercluster/src/widget/expanded_cluster.dart';
 import 'package:supercluster/supercluster.dart';
 
@@ -13,11 +13,9 @@ class ExpandedClusterManager {
     required this.onRemoved,
   });
 
-  bool contains(LayerCluster<Marker> layerCluster) =>
-      _expandedClusters.containsKey(layerCluster.uuid);
+  bool contains(LayerCluster<Marker> layerCluster) => _expandedClusters.containsKey(layerCluster.uuid);
 
-  ExpandedCluster? forLayerCluster(LayerCluster<Marker> layerCluster) =>
-      _expandedClusters[layerCluster.uuid];
+  ExpandedCluster? forLayerCluster(LayerCluster<Marker> layerCluster) => _expandedClusters[layerCluster.uuid];
 
   Iterable<ExpandedCluster> get all => _expandedClusters.values;
 

@@ -1,7 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/plugin_api.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_supercluster/src/layer/cluster_data.dart';
 import 'package:flutter_map_supercluster/src/layer/flutter_map_state_extension.dart';
 import 'package:flutter_map_supercluster/src/layer/supercluster_layer.dart';
@@ -26,7 +26,7 @@ class ExpandedCluster {
   ExpandedCluster({
     required TickerProvider vsync,
     required this.layerCluster,
-    required FlutterMapState mapState,
+    required MapController mapController,
     required List<LayerPoint<Marker>> layerPoints,
     required this.clusterSplayDelegate,
   })  : clusterData = layerCluster.clusterData as ClusterData,
@@ -37,10 +37,8 @@ class ExpandedCluster {
         displacedMarkers = clusterSplayDelegate.displaceMarkers(
           layerPoints.map((e) => e.originalPoint).toList(),
           clusterPosition: layerCluster.latLng,
-          project: (latLng) =>
-              mapState.project(latLng, layerCluster.highestZoom.toDouble()),
-          unproject: (point) =>
-              mapState.unproject(point, layerCluster.highestZoom.toDouble()),
+          project: (latLng) => mapController.camera.projectAtZoom(latLng, layerCluster.highestZoom.toDouble()),
+          unproject: (point) => mapController.camera.unprojectAtZoom(point, layerCluster.highestZoom.toDouble()),
         ),
         maxMarkerSize = layerPoints.fold(
           Size.zero,
@@ -50,8 +48,7 @@ class ExpandedCluster {
           ),
         ) {
     markersToDisplacedMarkers = {
-      for (final displacedMarker in displacedMarkers)
-        displacedMarker.marker: displacedMarker
+      for (final displacedMarker in displacedMarkers) displacedMarker.marker: displacedMarker
     };
     _splayAnimation = CurvedAnimation(
       parent: animation,
@@ -66,13 +63,13 @@ class ExpandedCluster {
   int get minimumVisibleZoom => layerCluster.highestZoom;
 
   List<DisplacedMarkerOffset> displacedMarkerOffsets(
-    FlutterMapState mapState,
-    CustomPoint clusterPosition,
+    MapController mapController,
+    Offset clusterPosition,
   ) =>
       clusterSplayDelegate.displacedMarkerOffsets(
         displacedMarkers,
         animation.value,
-        mapState.getPixelOffset,
+        mapController.getPixelOffset,
         clusterPosition,
       );
 
@@ -98,11 +95,9 @@ class ExpandedCluster {
 
   bool get isExpanded => animation.status == AnimationStatus.completed;
 
-  bool get collapsing =>
-      animation.isAnimating && animation.status == AnimationStatus.reverse;
+  bool get collapsing => animation.isAnimating && animation.status == AnimationStatus.reverse;
 
-  Iterable<Marker> get markers =>
-      displacedMarkers.map((displacedMarker) => displacedMarker.marker);
+  Iterable<Marker> get markers => displacedMarkers.map((displacedMarker) => displacedMarker.marker);
 
   void tryCollapse(void Function(TickerFuture collapseTicker) onCollapse) {
     if (!collapsing) onCollapse(animation.reverse());

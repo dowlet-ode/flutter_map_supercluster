@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_map/plugin_api.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_supercluster/src/controller/marker_matcher.dart';
 import 'package:flutter_map_supercluster/src/controller/supercluster_event.dart';
 import 'package:latlong2/latlong.dart';
@@ -9,8 +9,7 @@ import 'package:supercluster/supercluster.dart';
 import 'supercluster_controller.dart';
 import 'supercluster_state.dart';
 
-class SuperclusterControllerImpl
-    implements SuperclusterImmutableController, SuperclusterMutableController {
+class SuperclusterControllerImpl implements SuperclusterImmutableController, SuperclusterMutableController {
   final bool createdInternally;
   final StreamController<SuperclusterEvent> _superclusterEventController;
   final StreamController<SuperclusterState> _stateStreamController;
@@ -18,14 +17,12 @@ class SuperclusterControllerImpl
 
   SuperclusterControllerImpl({required this.createdInternally})
       : _superclusterEventController = StreamController.broadcast(),
-        _stateStreamController =
-            StreamController<SuperclusterState>.broadcast();
+        _stateStreamController = StreamController<SuperclusterState>.broadcast();
 
   Stream<SuperclusterEvent> get stream => _superclusterEventController.stream;
 
   @override
-  Stream<SuperclusterState> get stateStream =>
-      _stateStreamController.stream.distinct();
+  Stream<SuperclusterState> get stateStream => _stateStreamController.stream.distinct();
 
   void setSupercluster(Future<Supercluster<Marker>> supercluster) {
     _supercluster = supercluster;

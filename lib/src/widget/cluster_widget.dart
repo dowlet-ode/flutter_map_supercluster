@@ -1,76 +1,58 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_map/plugin_api.dart';
-import 'package:flutter_map_supercluster/src/layer/anchor_util.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_supercluster/src/layer/flutter_map_state_extension.dart';
 import 'package:flutter_map_supercluster/src/layer_element_extension.dart';
 import 'package:supercluster/supercluster.dart';
 
-import '../layer/cluster_data.dart';
-import '../layer/supercluster_layer.dart';
-
 class ClusterWidget extends StatelessWidget {
   final LayerCluster<Marker> cluster;
-  final ClusterWidgetBuilder builder;
+  final Widget child;
   final VoidCallback onTap;
   final Size size;
-  final Point<double> position;
+  final Offset position;
   final double mapRotationRad;
 
   ClusterWidget({
     Key? key,
-    required FlutterMapState mapState,
+    required MapController mapController,
     required this.cluster,
-    required this.builder,
+    required this.child,
     required this.onTap,
     required this.size,
-    required AnchorPos? anchorPos,
+    required AlignmentGeometry? alignment,
   })  : position = _getClusterPixel(
-          mapState,
+          mapController,
           cluster,
-          anchorPos,
+          alignment,
           size,
         ),
-        mapRotationRad = mapState.rotationRad,
+        mapRotationRad = mapController.camera.rotationRad,
         super(key: ValueKey(cluster.uuid));
 
   @override
   Widget build(BuildContext context) {
-    final clusterData = cluster.clusterData as ClusterData;
-
     return Positioned(
       width: size.width,
       height: size.height,
-      left: position.x,
-      top: position.y,
+      left: position.dx,
+      top: position.dy,
       child: Transform.rotate(
         angle: -mapRotationRad,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onTap,
-          child: builder(
-            context,
-            cluster.latLng,
-            clusterData.markerCount,
-            clusterData.innerData,
-          ),
+          child: child,
         ),
       ),
     );
   }
 
-  static Point<double> _getClusterPixel(
-    FlutterMapState mapState,
+  static Offset _getClusterPixel(
+    MapController mapController,
     LayerCluster<Marker> cluster,
-    AnchorPos? anchorPos,
+    AlignmentGeometry? alignment,
     Size size,
   ) {
-    return AnchorUtil.removeClusterAnchor(
-      mapState.getPixelOffset(cluster.latLng),
-      cluster,
-      anchorPos,
-      size,
-    );
+    return mapController.getPixelOffset(cluster.latLng);
   }
 }

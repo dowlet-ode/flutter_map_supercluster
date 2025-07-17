@@ -3,7 +3,7 @@ import 'dart:math';
 
 import 'package:async/async.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/plugin_api.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_popup/extension_api.dart';
 import 'package:flutter_map_supercluster/src/controller/marker_matcher.dart';
 import 'package:flutter_map_supercluster/src/controller/supercluster_event.dart';
@@ -50,7 +50,8 @@ class SuperclusterLayer extends StatefulWidget {
   final bool _isMutableSupercluster;
 
   /// Cluster builder
-  final ClusterWidgetBuilder builder;
+  // final ClusterWidgetBuilder builder;
+  final Widget child;
 
   /// Controller for managing [Marker]s and listening to changes.
   final SuperclusterControllerImpl controller;
@@ -107,7 +108,7 @@ class SuperclusterLayer extends StatefulWidget {
   final Size clusterWidgetSize;
 
   /// Cluster anchor
-  final AnchorPos? anchor;
+  final AlignmentGeometry? alignment;
 
   /// If true then whenever the aggregated cluster data changes (that is, the
   /// combined cluster data of all Markers as calculated by
@@ -121,9 +122,9 @@ class SuperclusterLayer extends StatefulWidget {
   final ClusterSplayDelegate clusterSplayDelegate;
 
   SuperclusterLayer.immutable({
-    Key? key,
+    super.key,
     SuperclusterImmutableController? controller,
-    required this.builder,
+    required this.child,
     required this.indexBuilder,
     this.initialMarkers = const [],
     this.moveMap,
@@ -135,7 +136,7 @@ class SuperclusterLayer extends StatefulWidget {
     this.clusterWidgetSize = const Size(30, 30),
     this.loadingOverlayBuilder,
     PopupOptions? popupOptions,
-    this.anchor,
+    this.alignment,
     this.clusterSplayDelegate = const SpreadClusterSplayDelegate(
       duration: Duration(milliseconds: 300),
       splayLineOptions: SplayLineOptions(),
@@ -144,14 +145,12 @@ class SuperclusterLayer extends StatefulWidget {
         controller = controller != null
             ? controller as SuperclusterControllerImpl
             : SuperclusterControllerImpl(createdInternally: true),
-        popupOptions =
-            popupOptions == null ? null : popupOptions as PopupOptionsImpl,
-        super(key: key);
+        popupOptions = popupOptions == null ? null : popupOptions as PopupOptionsImpl;
 
   SuperclusterLayer.mutable({
-    Key? key,
+    super.key,
     SuperclusterMutableController? controller,
-    required this.builder,
+    required this.child,
     required this.indexBuilder,
     this.initialMarkers = const [],
     this.moveMap,
@@ -163,7 +162,7 @@ class SuperclusterLayer extends StatefulWidget {
     this.clusterWidgetSize = const Size(30, 30),
     this.loadingOverlayBuilder,
     PopupOptions? popupOptions,
-    this.anchor,
+    this.alignment,
     this.clusterSplayDelegate = const SpreadClusterSplayDelegate(
       duration: Duration(milliseconds: 400),
     ),
@@ -171,16 +170,13 @@ class SuperclusterLayer extends StatefulWidget {
         controller = controller != null
             ? controller as SuperclusterControllerImpl
             : SuperclusterControllerImpl(createdInternally: true),
-        popupOptions =
-            popupOptions == null ? null : popupOptions as PopupOptionsImpl,
-        super(key: key);
+        popupOptions = popupOptions == null ? null : popupOptions as PopupOptionsImpl;
 
   @override
   State<SuperclusterLayer> createState() => _SuperclusterLayerState();
 }
 
-class _SuperclusterLayerState extends State<SuperclusterLayer>
-    with TickerProviderStateMixin {
+class _SuperclusterLayerState extends State<SuperclusterLayer> with TickerProviderStateMixin {
   static const defaultMinZoom = 1;
   static const defaultMaxZoom = 20;
 
@@ -189,7 +185,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
   late int minZoom;
   late int maxZoom;
 
-  late FlutterMapState _mapState;
+  late MapController _mapController;
   late final ExpandedClusterManager _expandedClusterManager;
 
   StreamSubscription<SuperclusterEvent>? _controllerSubscription;
@@ -199,8 +195,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
 
   PopupState? _popupState;
 
-  CancelableCompleter<Supercluster<Marker>> _superclusterCompleter =
-      CancelableCompleter();
+  CancelableCompleter<Supercluster<Marker>> _superclusterCompleter = CancelableCompleter();
 
   @override
   void initState() {
@@ -212,9 +207,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
         // SuperclusterController.collapseSplayedClusters we need to remove the
         // popups ourselves.
         widget.popupOptions?.popupController.hidePopupsOnlyFor(
-          expandedClusters
-              .expand((expandedCluster) => expandedCluster.markers)
-              .toList(),
+          expandedClusters.expand((expandedCluster) => expandedCluster.markers).toList(),
         );
       },
       onRemoved: (expandedClusters) => setState(() {}),
@@ -225,37 +218,33 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    _mapState = FlutterMapState.maybeOf(context)!;
+    _mapController = MapController.maybeOf(context)!;
 
     final oldMinZoom = !_initialized ? null : minZoom;
     final oldMaxZoom = !_initialized ? null : maxZoom;
-    minZoom = _mapState.options.minZoom?.ceil() ?? defaultMinZoom;
-    maxZoom = _mapState.options.maxZoom?.ceil() ?? defaultMaxZoom;
+    minZoom = _mapController.camera.minZoom?.ceil() ?? defaultMinZoom;
+    maxZoom = _mapController.camera.maxZoom?.ceil() ?? defaultMaxZoom;
 
-    bool zoomsChanged =
-        _initialized && oldMinZoom != minZoom || oldMaxZoom != maxZoom;
+    bool zoomsChanged = _initialized && oldMinZoom != minZoom || oldMaxZoom != maxZoom;
 
     if (!_initialized) {
-      _lastMovementZoom = _mapState.zoom.ceil();
-      _controllerSubscription = widget.controller.stream.listen(
-          (superclusterEvent) => _onSuperclusterEvent(superclusterEvent));
+      _lastMovementZoom = _mapController.camera.zoom.ceil();
+      _controllerSubscription =
+          widget.controller.stream.listen((superclusterEvent) => _onSuperclusterEvent(superclusterEvent));
 
-      _movementStreamSubscription = _mapState.mapController.mapEventStream
-          .listen((_) => _onMove(_mapState));
+      _movementStreamSubscription = _mapController.mapEventStream.listen((_) => _onMove(_mapController));
     }
 
     if (!_initialized || zoomsChanged) {
       if (_initialized) {
-        debugPrint(
-            'WARNING: Changes to the FlutterMapState have caused a rebuild of '
+        debugPrint('WARNING: Changes to the FlutterMapState have caused a rebuild of '
             'the Supercluster clusters. This can be a slow operation and '
             'should be avoided whenever possible.');
       }
       _initializeClusterManager(
         !_initialized
             ? Future.value(widget.initialMarkers)
-            : _superclusterCompleter.operation.value
-                .then((supercluster) => supercluster.getLeaves().toList()),
+            : _superclusterCompleter.operation.value.then((supercluster) => supercluster.getLeaves().toList()),
       );
     }
     _initialized = true;
@@ -273,10 +262,8 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     if (oldWidget._isMutableSupercluster != widget._isMutableSupercluster ||
         oldWidget.maxClusterRadius != widget.maxClusterRadius ||
         oldWidget.minimumClusterSize != widget.minimumClusterSize ||
-        oldWidget.calculateAggregatedClusterData !=
-            widget.calculateAggregatedClusterData) {
-      debugPrint(
-          'WARNING: Changes to the Supercluster options have caused a rebuild '
+        oldWidget.calculateAggregatedClusterData != widget.calculateAggregatedClusterData) {
+      debugPrint('WARNING: Changes to the Supercluster options have caused a rebuild '
           'of the Supercluster clusters. This can be a slow operation and '
           'should be avoided whenever possible.');
       _initializeClusterManager(_superclusterCompleter.operation
@@ -287,8 +274,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     if (widget.popupOptions != oldWidget.popupOptions) {
       oldWidget.popupOptions?.popupController.dispose();
       _movementStreamSubscription?.cancel();
-      _movementStreamSubscription = _mapState.mapController.mapEventStream
-          .listen((_) => _onMove(_mapState));
+      _movementStreamSubscription = _mapController.mapEventStream.listen((_) => _onMove(_mapController));
     }
   }
 
@@ -306,8 +292,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
       const SuperclusterState(loading: true, aggregatedClusterData: null),
     );
 
-    final supercluster =
-        markersFuture.catchError((_) => <Marker>[]).then((markers) {
+    final supercluster = markersFuture.catchError((_) => <Marker>[]).then((markers) {
       final superclusterConfig = SuperclusterConfig(
         isMutableSupercluster: widget._isMutableSupercluster,
         markers: markers,
@@ -318,23 +303,20 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
         innerClusterDataExtractor: widget.clusterDataExtractor,
       );
 
-      if (_superclusterCompleter.isCompleted ||
-          _superclusterCompleter.isCanceled) {
+      if (_superclusterCompleter.isCompleted || _superclusterCompleter.isCanceled) {
         setState(() {
           _superclusterCompleter = CancelableCompleter();
         });
       }
 
-      final newSupercluster =
-          widget.indexBuilder.call(createSupercluster, superclusterConfig);
+      final newSupercluster = widget.indexBuilder.call(createSupercluster, superclusterConfig);
 
       _superclusterCompleter.complete(newSupercluster);
       _superclusterCompleter.operation.value.then((supercluster) {
         _onMarkersChange();
         _expandedClusterManager.clear();
         widget.popupOptions?.popupController.hidePopupsWhereSpec(
-          (popupSpec) =>
-              popupSpec.namespace == SuperclusterLayer.popupNamespace,
+          (popupSpec) => popupSpec.namespace == SuperclusterLayer.popupNamespace,
         );
       });
 
@@ -346,12 +328,12 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
 
   @override
   Widget build(BuildContext context) {
-    final mapState = FlutterMapState.maybeOf(context)!;
+    final mapController = MapController.maybeOf(context)!;
 
     return _wrapWithPopupStateIfPopupsEnabled(
       (popupState) => Stack(
         children: [
-          _clustersAndMarkers(mapState),
+          _clustersAndMarkers(mapController),
           if (widget.popupOptions?.popupDisplayOptions != null)
             PopupLayer(
               popupDisplayOptions: widget.popupOptions!.popupDisplayOptions!,
@@ -365,8 +347,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     );
   }
 
-  Widget _wrapWithPopupStateIfPopupsEnabled(
-      Widget Function(PopupState? popupState) builder) {
+  Widget _wrapWithPopupStateIfPopupsEnabled(Widget Function(PopupState? popupState) builder) {
     if (widget.popupOptions == null) return builder(null);
 
     return InheritOrCreatePopupScope(
@@ -381,8 +362,8 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     );
   }
 
-  Widget _clustersAndMarkers(FlutterMapState mapState) {
-    final paddedBounds = mapState.paddedMapBounds(widget.clusterWidgetSize);
+  Widget _clustersAndMarkers(MapController mapController) {
+    final paddedBounds = mapController.paddedMapBounds(widget.clusterWidgetSize);
 
     return FutureBuilder<Supercluster<Marker>>(
       future: _superclusterCompleter.operation.value,
@@ -390,22 +371,19 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
         final supercluster = snapshot.data;
         if (supercluster == null) return const SizedBox.shrink();
 
-        return Stack(children: [
-          ..._buildClustersAndMarkers(mapState, supercluster, paddedBounds)
-        ]);
+        return Stack(children: [..._buildClustersAndMarkers(mapController, supercluster, paddedBounds)]);
       },
     );
   }
 
   Iterable<Widget> _buildClustersAndMarkers(
-    FlutterMapState mapState,
+    MapController mapState,
     Supercluster<Marker> supercluster,
     LatLngBounds paddedBounds,
   ) sync* {
-    final selectedMarkerBuilder =
-        widget.popupOptions != null && _popupState!.selectedMarkers.isNotEmpty
-            ? widget.popupOptions!.selectedMarkerBuilder
-            : null;
+    final selectedMarkerBuilder = widget.popupOptions != null && _popupState!.selectedMarkers.isNotEmpty
+        ? widget.popupOptions!.selectedMarkerBuilder
+        : null;
     final List<LayerPoint<Marker>> selectedLayerPoints = [];
     final List<LayerCluster<Marker>> clusters = [];
 
@@ -416,15 +394,14 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
       paddedBounds.south,
       paddedBounds.east,
       paddedBounds.north,
-      mapState.zoom.ceil(),
+      mapState.camera.zoom.ceil(),
     )) {
       if (layerElement is LayerCluster<Marker>) {
         clusters.add(layerElement);
         continue;
       }
       layerElement as LayerPoint<Marker>;
-      if (selectedMarkerBuilder != null &&
-          _popupState!.selectedMarkers.contains(layerElement.originalPoint)) {
+      if (selectedMarkerBuilder != null && _popupState!.selectedMarkers.contains(layerElement.originalPoint)) {
         selectedLayerPoints.add(layerElement);
         continue;
       }
@@ -449,67 +426,52 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
   }
 
   Widget _buildMarker(
-    FlutterMapState mapState,
+    MapController mapController,
     LayerPoint<Marker> mapPoint, {
     bool selected = false,
   }) {
     final marker = mapPoint.originalPoint;
 
-    final markerBuilder = !selected
-        ? marker.builder
-        : (context) =>
-            widget.popupOptions!.selectedMarkerBuilder!(context, marker);
+    final markerChild = !selected ? marker.child : widget.popupOptions!.selectedMarkerBuilder!(context, marker);
 
     return MarkerWidget(
-      mapState: _mapState,
+      mapController: mapController,
       marker: marker,
-      markerBuilder: markerBuilder,
+      markerChild: markerChild,
       onTap: () => _onMarkerTap(PopupSpecBuilder.forLayerPoint(mapPoint)),
     );
   }
 
   Widget _buildCluster(
-    FlutterMapState mapState,
+    MapController mapController,
     Supercluster<Marker> supercluster,
     LayerCluster<Marker> cluster,
   ) {
     return ClusterWidget(
-      mapState: _mapState,
+      mapController: _mapController,
       cluster: cluster,
-      builder: widget.builder,
       onTap: () => _onClusterTap(supercluster, cluster),
       size: widget.clusterWidgetSize,
-      anchorPos: widget.anchor,
+      alignment: widget.alignment,
+      child: widget.child,
     );
   }
 
   Widget _buildExpandedCluster(
-    FlutterMapState mapState,
+    MapController mapController,
     ExpandedCluster expandedCluster,
   ) {
-    final selectedMarkerBuilder = widget.popupOptions?.selectedMarkerBuilder;
-    final Widget Function(BuildContext context, Marker marker) markerBuilder =
-        selectedMarkerBuilder == null
-            ? ((context, marker) => marker.builder(context))
-            : ((context, marker) =>
-                _popupState?.selectedMarkers.contains(marker) == true
-                    ? selectedMarkerBuilder(context, marker)
-                    : marker.builder(context));
-
     return ExpandableClusterWidget(
-      mapState: mapState,
+      mapController: mapController,
       expandedCluster: expandedCluster,
-      builder: widget.builder,
       size: widget.clusterWidgetSize,
-      anchorPos: widget.anchor,
-      markerBuilder: markerBuilder,
+      alignment: widget.alignment,
       onCollapse: () {
-        widget.popupOptions?.popupController
-            .hidePopupsOnlyFor(expandedCluster.markers.toList());
-        _expandedClusterManager
-            .collapseThenRemove(expandedCluster.layerCluster);
+        widget.popupOptions?.popupController.hidePopupsOnlyFor(expandedCluster.markers.toList());
+        _expandedClusterManager.collapseThenRemove(expandedCluster.layerCluster);
       },
       onMarkerTap: _onMarkerTap,
+      child: widget.child,
     );
   }
 
@@ -527,9 +489,8 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
         layerCluster,
         () => ExpandedCluster(
           vsync: this,
-          mapState: _mapState,
-          layerPoints:
-              supercluster.childrenOf(layerCluster).cast<LayerPoint<Marker>>(),
+          mapController: _mapController,
+          layerPoints: supercluster.childrenOf(layerCluster).cast<LayerPoint<Marker>>(),
           layerCluster: layerCluster,
           clusterSplayDelegate: widget.clusterSplayDelegate,
         ),
@@ -548,16 +509,15 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     double zoom, {
     FutureOr<void> Function(LatLng center, double zoom)? moveMapOverride,
   }) {
-    if (center == _mapState.center && zoom == _mapState.zoom) {
+    if (center == _mapController.camera.center && zoom == _mapController.camera.zoom) {
       return Future.value();
     }
 
     final moveMap = moveMapOverride ??
         widget.moveMap ??
-        (center, zoom) => _mapState.move(
+        (center, zoom) => _mapController.move(
               center,
               zoom,
-              source: MapEventSource.custom,
             );
 
     return moveMap.call(center, zoom);
@@ -583,8 +543,8 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     }
   }
 
-  void _onMove(FlutterMapState mapState) {
-    final zoom = mapState.zoom.ceil();
+  void _onMove(MapController mapController) {
+    final zoom = mapController.camera.zoom.ceil();
 
     if (_lastMovementZoom == null || zoom < _lastMovementZoom!) {
       _expandedClusterManager.removeIfZoomGreaterThan(zoom);
@@ -596,12 +556,9 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
   void _onMarkersChange() {
     if (!widget.controller.createdInternally) {
       _superclusterCompleter.operation.value.then((supercluster) {
-        final aggregatedClusterData = widget.calculateAggregatedClusterData
-            ? supercluster.aggregatedClusterData()
-            : null;
-        final clusterData = aggregatedClusterData == null
-            ? null
-            : (aggregatedClusterData as ClusterData);
+        final aggregatedClusterData =
+            widget.calculateAggregatedClusterData ? supercluster.aggregatedClusterData() : null;
+        final clusterData = aggregatedClusterData == null ? null : (aggregatedClusterData as ClusterData);
         widget.controller.updateState(
           SuperclusterState(
             loading: false,
@@ -617,8 +574,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     SuperclusterControllerImpl newController,
   ) {
     _controllerSubscription?.cancel();
-    _controllerSubscription =
-        newController.stream.listen((event) => _onSuperclusterEvent(event));
+    _controllerSubscription = newController.stream.listen((event) => _onSuperclusterEvent(event));
 
     oldController.removeSupercluster();
     if (oldController.createdInternally) oldController.dispose();
@@ -631,13 +587,11 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     required FutureOr<void> Function(LatLng center, double zoom)? moveMap,
   }) async {
     // Create a shorthand for the map movement function.
-    move(center, zoom) =>
-        _moveMapIfNotAt(center, zoom, moveMapOverride: moveMap);
+    move(center, zoom) => _moveMapIfNotAt(center, zoom, moveMapOverride: moveMap);
 
     /// Find the Marker's LayerPoint.
     final supercluster = await _superclusterCompleter.operation.value;
-    LayerPoint<Marker>? foundLayerPoint =
-        supercluster.layerPointMatching(markerMatcher);
+    LayerPoint<Marker>? foundLayerPoint = supercluster.layerPointMatching(markerMatcher);
     if (foundLayerPoint == null) return;
 
     final markerInSplayCluster = maxZoom < foundLayerPoint.lowestZoom;
@@ -651,7 +605,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     } else {
       await move(
         foundLayerPoint.latLng,
-        max(foundLayerPoint.lowestZoom.toDouble(), _mapState.zoom),
+        max(foundLayerPoint.lowestZoom.toDouble(), _mapController.camera.zoom),
       );
       if (showPopup) {
         _selectMarker(PopupSpecBuilder.forLayerPoint(foundLayerPoint));
@@ -678,27 +632,23 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
     // Shorthand for creating an ExpandedCluster.
     createExpandedCluster() => ExpandedCluster(
           vsync: this,
-          mapState: _mapState,
-          layerPoints:
-              supercluster.childrenOf(layerCluster).cast<LayerPoint<Marker>>(),
+          mapController: _mapController,
+          layerPoints: supercluster.childrenOf(layerCluster).cast<LayerPoint<Marker>>(),
           layerCluster: layerCluster,
           clusterSplayDelegate: widget.clusterSplayDelegate,
         );
 
     // Find or create the marker's ExpandedCluster and use it to find the
     // DisplacedMarker.
-    final expandedClusterBeforeMovement =
-        _expandedClusterManager.forLayerCluster(layerCluster);
-    final createdExpandedCluster =
-        expandedClusterBeforeMovement != null ? null : createExpandedCluster();
+    final expandedClusterBeforeMovement = _expandedClusterManager.forLayerCluster(layerCluster);
+    final createdExpandedCluster = expandedClusterBeforeMovement != null ? null : createExpandedCluster();
     final displacedMarker =
-        (expandedClusterBeforeMovement ?? createdExpandedCluster)!
-            .markersToDisplacedMarkers[layerPoint.originalPoint]!;
+        (expandedClusterBeforeMovement ?? createdExpandedCluster)!.markersToDisplacedMarkers[layerPoint.originalPoint]!;
 
     // Move to the DisplacedMarker.
     await move(
       displacedMarker.displacedPoint,
-      max(_mapState.zoom, layerPoint.lowestZoom - 0.99999),
+      max(_mapController.camera.zoom, layerPoint.lowestZoom - 0.99999),
     );
 
     // Determine the ExpandedCluster after movement, either:
@@ -734,16 +684,14 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
         });
       case RemoveMarkerEvent():
         _superclusterCompleter.operation.then((supercluster) {
-          final removed = (supercluster as SuperclusterMutable<Marker>)
-              .remove(event.marker);
+          final removed = (supercluster as SuperclusterMutable<Marker>).remove(event.marker);
           if (removed) _onMarkersChange();
         });
       case ReplaceAllMarkerEvent():
         _initializeClusterManager(Future.value(event.markers));
       case ModifyMarkerEvent():
         _superclusterCompleter.operation.then((supercluster) {
-          final modified =
-              (supercluster as SuperclusterMutable<Marker>).modifyPointData(
+          final modified = (supercluster as SuperclusterMutable<Marker>).modifyPointData(
             event.oldMarker,
             event.newMarker,
             updateParentClusters: event.updateParentClusters,
@@ -758,7 +706,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
         widget.popupOptions?.popupController.showPopupsAlsoForSpecs(
           PopupSpecBuilder.buildList(
             supercluster: await _superclusterCompleter.operation.value,
-            zoom: _mapState.zoom.ceil(),
+            zoom: _mapController.camera.zoom.ceil(),
             maxZoom: maxZoom,
             markers: event.markers,
             expandedClusters: _expandedClusterManager.all,
@@ -776,7 +724,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
         widget.popupOptions?.popupController.showPopupsOnlyForSpecs(
           PopupSpecBuilder.buildList(
             supercluster: await _superclusterCompleter.operation.value,
-            zoom: _mapState.zoom.ceil(),
+            zoom: _mapController.camera.zoom.ceil(),
             maxZoom: maxZoom,
             markers: event.markers,
             expandedClusters: _expandedClusterManager.all,
@@ -804,7 +752,7 @@ class _SuperclusterLayerState extends State<SuperclusterLayer>
         if (widget.popupOptions == null) return;
         final popupSpec = PopupSpecBuilder.build(
           supercluster: await _superclusterCompleter.operation.value,
-          zoom: _mapState.zoom.ceil(),
+          zoom: _mapController.camera.zoom.ceil(),
           maxZoom: maxZoom,
           marker: event.marker,
           expandedClusters: _expandedClusterManager.all,
